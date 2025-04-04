@@ -4,7 +4,7 @@
 #include <math.h>
 #include <string.h>
 
-#define DATASET_PATH "rating/ml-1m.csv"
+#define DATASET_PATH "rating/ml-100k.csv"
 
 #define LATENT_DIM 100
 #define MAX_ITER 30
@@ -577,16 +577,6 @@ int main(int argc, char *argv[]) {
     MPI_Bcast(user_partition_start, size + 1, MPI_INT, 0, MPI_COMM_WORLD);
     free(user_rating_counts);
 
-    int local_user_start = user_partition_start[rank];
-    int local_user_end = user_partition_start[rank + 1];
-    int local_user_ratings = 0;
-    for (int u = local_user_start; u < local_user_end; u++) {
-        local_user_ratings += R->row_ptr[u + 1] - R->row_ptr[u];
-    }
-    printf("[RANK %d] Assigned users: [%d, %d), total %d users, total %d ratings\n",
-           rank, local_user_start, local_user_end,
-           local_user_end - local_user_start, local_user_ratings);
-
     // movies rating partition
     int *movie_rating_counts = malloc(num_movies * sizeof(int));
     for (int i = 0; i < num_movies; i++) {
@@ -599,18 +589,6 @@ int main(int argc, char *argv[]) {
     }
     MPI_Bcast(movie_partition_start, size + 1, MPI_INT, 0, MPI_COMM_WORLD);
     free(movie_rating_counts);
-
-    int local_movie_start = movie_partition_start[rank];
-    int local_movie_end   = movie_partition_start[rank + 1];
-    int local_total_ratings = 0;
-
-    for (int j = local_movie_start; j < local_movie_end; j++) {
-        local_total_ratings += movie_to_users[j].count;
-    }
-
-    printf("[RANK %d] Assigned movies: [%d, %d), total %d movies, total %d ratings\n",
-           rank, local_movie_start, local_movie_end,
-           local_movie_end - local_movie_start, local_total_ratings);
 
     // Start ALS training loop
     float prev_rmse = 1e10f;
