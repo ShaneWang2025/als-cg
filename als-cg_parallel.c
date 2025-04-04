@@ -3,8 +3,9 @@
 #include <stdlib.h>
 #include <math.h>
 #include <string.h>
+#include <time.h>
 
-#define DATASET_PATH "rating/ml-1m.csv"
+#define DATASET_PATH "rating/ml-100k.csv"
 
 #define LATENT_DIM 100
 #define MAX_ITER 30
@@ -111,6 +112,8 @@ SparseMatrixCSR *read_as_sparse_matrix_with_split(const char *path) {
     test_set = malloc(total_lines * sizeof(Record));
 
     EntryNode **user_rows = calloc(max_user_id, sizeof(EntryNode *));
+
+    // srand(time(NULL));
 
     for (int i = 0; i < total_lines; i++) {
         int u_raw = records[i].u;
