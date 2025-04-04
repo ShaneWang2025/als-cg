@@ -4,7 +4,7 @@
 #include <math.h>
 #include <string.h>
 
-#define DATASET_PATH "rating/ml-100k.csv"
+#define DATASET_PATH "rating/ml-1m.csv"
 
 #define LATENT_DIM 100
 #define MAX_ITER 30
@@ -19,6 +19,7 @@
 #define MIN_USER_RATINGS_FOR_TEST 10
 #define TEST_RATIO 0.2
 
+int *user_partition_start = NULL;
 int *movie_partition_start = NULL;
 
 typedef struct {
@@ -329,11 +330,9 @@ void als_update_U(SparseMatrixCSR *R, float *U, float *V, int rank, int size) {
 
     int num_users = R->num_users;
 
-    int users_per_proc = num_users / size;
-    int extra_users = num_users % size;
-    int local_user_start = rank * users_per_proc + (rank < extra_users ? rank : extra_users);
-    int local_user_count = users_per_proc + (rank < extra_users ? 1 : 0);
-    int local_user_end = local_user_start + local_user_count;
+    int local_user_start = user_partition_start[rank];
+    int local_user_end = user_partition_start[rank + 1];
+    int local_user_count = local_user_end - local_user_start;
 
     for (int i = local_user_start; i < local_user_end; i++) {
         int global_u = i;
@@ -366,7 +365,7 @@ void als_update_U(SparseMatrixCSR *R, float *U, float *V, int rank, int size) {
     int *displs = malloc(size * sizeof(int));
 
     for (int r = 0; r < size; r++) {
-        int count = num_users / size + (r < num_users % size ? 1 : 0);
+        int count = user_partition_start[r + 1] - user_partition_start[r];
         recvcounts[r] = count * LATENT_DIM;
         displs[r] = (r == 0) ? 0 : displs[r - 1] + recvcounts[r - 1];
     }
@@ -460,14 +459,8 @@ void als_update_V(float *U, float *V, MovieUserList *movie_to_users, int num_mov
 
 float compute_rmse_parallel(SparseMatrixCSR *R, float *U, float *V, int rank, int size,
                             MPI_Comm comm) {
-    int num_users = R->num_users;
-
-    int users_per_proc = num_users / size;
-    int extra_users = num_users % size;
-    int local_user_start = rank * users_per_proc + (rank < extra_users ? rank : extra_users);
-    int local_user_count = users_per_proc + (rank < extra_users ? 1 : 0);
-    int local_user_end = local_user_start + local_user_count;
-
+    int local_user_start = user_partition_start[rank];
+    int local_user_end = user_partition_start[rank + 1];
     float local_error = 0.0;
     int local_nnz = 0;
     for (int u = local_user_start; u < local_user_end; u++) {
@@ -571,7 +564,30 @@ int main(int argc, char *argv[]) {
         printf("[Build movie user map] %.4f seconds \n", t_build_map_end - t_build_map_start);
     }
 
-    // movies workload load balance
+    // user rating partition
+    int *user_rating_counts = malloc(num_users * sizeof(int));
+    for (int i = 0; i < num_users; i++) {
+        user_rating_counts[i] = R->row_ptr[i + 1] - R->row_ptr[i];
+    }
+
+    user_partition_start = malloc((size + 1) * sizeof(int));
+    if (rank == 0) {
+        compute_balanced_partition(user_rating_counts, num_users, size, user_partition_start);
+    }
+    MPI_Bcast(user_partition_start, size + 1, MPI_INT, 0, MPI_COMM_WORLD);
+    free(user_rating_counts);
+
+    int local_user_start = user_partition_start[rank];
+    int local_user_end = user_partition_start[rank + 1];
+    int local_user_ratings = 0;
+    for (int u = local_user_start; u < local_user_end; u++) {
+        local_user_ratings += R->row_ptr[u + 1] - R->row_ptr[u];
+    }
+    printf("[RANK %d] Assigned users: [%d, %d), total %d users, total %d ratings\n",
+           rank, local_user_start, local_user_end,
+           local_user_end - local_user_start, local_user_ratings);
+
+    // movies rating partition
     int *movie_rating_counts = malloc(num_movies * sizeof(int));
     for (int i = 0; i < num_movies; i++) {
         movie_rating_counts[i] = movie_to_users[i].count;
