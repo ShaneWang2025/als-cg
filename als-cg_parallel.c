@@ -300,16 +300,16 @@ void cg_solve(float *A, float *b, float *x, float *r, float *p, float *Ap) {
 }
 
 void compute_balanced_partition(int *movie_rating_counts, int num_movies, int size, int *partition_start) {
-    long long total_ratings = 0;
+    int total_ratings = 0;
     for (int i = 0; i < num_movies; i++) {
         total_ratings += movie_rating_counts[i];
     }
 
-    long long target = total_ratings / size;
+    int target = total_ratings / size;
     partition_start[0] = 0;
 
     int curr_rank = 1;
-    long long accum = 0;
+    int accum = 0;
 
     for (int i = 0; i < num_movies; i++) {
         accum += movie_rating_counts[i];
