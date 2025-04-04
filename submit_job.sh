@@ -1,0 +1,1 @@
+qsub -l nodes=6:ppn=10 qsub_als
