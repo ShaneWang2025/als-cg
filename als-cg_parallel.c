@@ -334,6 +334,8 @@ void als_update_U(SparseMatrixCSR *R, float *U, float *V, int rank, int size) {
     int local_user_end = user_partition_start[rank + 1];
     int local_user_count = local_user_end - local_user_start;
 
+    double t_cg_start = MPI_Wtime();
+
     for (int i = local_user_start; i < local_user_end; i++) {
         int global_u = i;
         int idx_start = R->row_ptr[i];
@@ -359,8 +361,13 @@ void als_update_U(SparseMatrixCSR *R, float *U, float *V, int rank, int size) {
         cg_solve(A, b, &U[global_u * LATENT_DIM], r, p, Ap);
     }
 
+    double t_cg_end = MPI_Wtime();
+    if (rank == 0) {
+        printf("[Rank 0] [U] Total CG Time = %.4f s\n", t_cg_end - t_cg_start);
+    }
 
     // gather U
+    double t_allgather_start = MPI_Wtime();
     int *recvcounts = malloc(size * sizeof(int));
     int *displs = malloc(size * sizeof(int));
 
@@ -379,6 +386,10 @@ void als_update_U(SparseMatrixCSR *R, float *U, float *V, int rank, int size) {
 
     memcpy(U, recvbuf, num_users * LATENT_DIM * sizeof(float));
 
+    double t_allgather_end = MPI_Wtime();
+    if (rank == 0) {
+        printf("[Rank 0] [U] Allgatherv Time = %.4f s\n", t_allgather_end - t_allgather_start);
+    }
 
     free(A);
     free(b);
@@ -402,6 +413,8 @@ void als_update_V(float *U, float *V, MovieUserList *movie_to_users, int num_mov
     int local_movie_start = movie_partition_start[rank];
     int local_movie_end   = movie_partition_start[rank + 1];
     int local_movie_count = local_movie_end - local_movie_start;
+
+    double t_cg_start = MPI_Wtime();
 
     for (int j = local_movie_start; j < local_movie_end; j++) {
         memset(A, 0, LATENT_DIM * LATENT_DIM * sizeof(float));
@@ -427,7 +440,13 @@ void als_update_V(float *U, float *V, MovieUserList *movie_to_users, int num_mov
         cg_solve(A, b, &V[j * LATENT_DIM], r, p, Ap);
     }
 
+    double t_cg_end = MPI_Wtime();
+    if (rank == 0) {
+        printf("[Rank 0] [V] Total CG Time = %.4f s\n", t_cg_end - t_cg_start);
+    }
+
     // gather V
+    double t_allgather_start = MPI_Wtime();
     int *recvcounts = malloc(size * sizeof(int));
     int *displs = malloc(size * sizeof(int));
 
@@ -445,6 +464,11 @@ void als_update_V(float *U, float *V, MovieUserList *movie_to_users, int num_mov
                    MPI_COMM_WORLD);
 
     memcpy(V, recvbuf, num_movies * LATENT_DIM * sizeof(float));
+    double t_allgather_end = MPI_Wtime();
+
+    if (rank == 0) {
+        printf("[Rank 0] [V] Allgatherv Time = %.4f s\n", t_allgather_end - t_allgather_start);
+    }
 
     free(A);
     free(b);
@@ -595,6 +619,10 @@ int main(int argc, char *argv[]) {
     for (int iter = 0; iter < MAX_ITER; iter++) {
         double t0 = MPI_Wtime();
 
+        if (rank == 0) {
+            printf("[ALS Iter %d]\n\n", iter);
+        }
+
         // Update U on this rank's assigned users
         als_update_U(R, U, V, rank, size);
 
@@ -610,8 +638,7 @@ int main(int argc, char *argv[]) {
 
         double t3 = MPI_Wtime();
         if (rank == 0) {
-            printf("[ALS Iter %d]\n", iter);
-            printf("Train Data RMSE = %.6f \n", curr_rmse);
+            printf("\nTrain Data RMSE = %.6f \n", curr_rmse);
             printf("Time (ALS U-update): %.4fs \n", t1 - t0);
             printf("Time (ALS V-update): %.4fs \n", t2 - t1);
             printf("Time (RMSE): %.4fs \n", t3 - t2);
