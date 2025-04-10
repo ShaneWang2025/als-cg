@@ -80,7 +80,7 @@ SparseMatrixCSR *read_as_sparse_matrix_with_split(const char *path) {
         float r;
         if (sscanf(line, "%d,%d,%f", &u, &m, &r) != 3) continue;
 
-        // 动态扩容逻辑
+        // increase capacity dynamically
         if (total_lines >= capacity) {
             capacity *= 2;
             records = realloc(records, capacity * sizeof(Record));
